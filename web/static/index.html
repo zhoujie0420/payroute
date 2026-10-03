@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PayRoute - 智能支付路由网关</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
+header{background:linear-gradient(135deg,#1e3a8a,#7c3aed);padding:28px 32px}
+header h1{font-size:26px}header p{opacity:.8;margin-top:6px}
+main{max-width:1100px;margin:0 auto;padding:24px;display:grid;gap:20px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px}
+.card{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:18px}
+.card .v{font-size:28px;font-weight:700;margin-top:6px}
+.card .l{font-size:13px;color:#94a3b8}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+@media(max-width:800px){.grid2{grid-template-columns:1fr}}
+.panel{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:20px}
+.panel h2{font-size:16px;margin-bottom:14px}
+label{font-size:13px;color:#94a3b8;display:block;margin:10px 0 4px}
+input{width:100%;padding:10px;border-radius:8px;border:1px solid #334155;background:#0f172a;color:#fff;font-size:15px}
+button{margin-top:14px;width:100%;padding:12px;border:0;border-radius:8px;background:linear-gradient(135deg,#3b82f6,#8b5cf6);color:#fff;font-size:15px;font-weight:600;cursor:pointer}
+button:hover{opacity:.9}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:10px 8px;text-align:left;border-bottom:1px solid #334155}
+th{color:#94a3b8;font-weight:500}
+.badge{padding:3px 10px;border-radius:20px;font-size:12px}
+.ok{background:#065f46;color:#a7f3d0}.fail{background:#7f1d1d;color:#fecaca}.block{background:#78350f;color:#fde68a}
+pre{background:#0f172a;border:1px solid #334155;border-radius:8px;padding:12px;font-size:12px;overflow:auto;max-height:300px;white-space:pre-wrap}
+.ch{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #334155;font-size:14px}
+</style>
+</head>
+<body>
+<header>
+<h1>⚡ PayRoute 智能支付路由网关</h1>
+<p>Golang · PayPal 沙箱集成 · AI 实时风控 · PayPal AI Hackathon 2026 参赛作品</p>
+</header>
+<main>
+<div class="cards" id="stats"></div>
+<div class="grid2">
+<div class="panel">
+<h2>💳 发起支付测试</h2>
+<label>金额</label><input id="amount" type="number" value="299.00" step="0.01">
+<label>币种</label><input id="currency" value="CNY">
+<label>IP（模拟）</label><input id="ip" value="203.0.113.10">
+<label>卡号（模拟）</label><input id="card" value="6222021234567890">
+<button onclick="pay()">发起支付</button>
+<h2 style="margin-top:20px">返回结果</h2>
+<pre id="result">等待支付…</pre>
+</div>
+<div class="panel">
+<h2>🅿️ PayPal 订单（沙箱）</h2>
+<label>金额 (USD)</label><input id="pp_amount" type="number" value="49.99" step="0.01">
+<button onclick="ppOrder()">创建 PayPal 订单</button>
+<pre id="pp_result" style="margin-top:12px">未配置 PAYPAL_CLIENT_ID 时为模拟模式</pre>
+</div>
+<div class="panel">
+<h2>🔌 支付通道状态</h2>
+<div id="channels"></div>
+</div>
+</div>
+<div class="panel">
+<h2>📋 最近订单</h2>
+<table><thead><tr><th>订单ID</th><th>金额</th><th>通道</th><th>状态</th><th>风控</th><th>耗时</th></tr></thead>
+<tbody id="orders"></tbody></table>
+</div>
+</main>
+<script>
+async function load(){
+  const s=await(await fetch('/api/v1/stats')).json();
+  document.getElementById('stats').innerHTML=`
+    <div class="card"><div class="l">总订单</div><div class="v">${s.total}</div></div>
+    <div class="card"><div class="l">成功率</div><div class="v" style="color:#34d399">${s.success_rate}</div></div>
+    <div class="card"><div class="l">交易总额</div><div class="v">¥${Number(s.volume).toFixed(2)}</div></div>
+    <div class="card"><div class="l">风控拦截</div><div class="v" style="color:#fbbf24">${s.blocked}</div></div>`;
+  const c=await(await fetch('/api/v1/channels')).json();
+  document.getElementById('channels').innerHTML=c.channels.map(x=>`
+    <div class="ch"><span><b>${x.name}</b> <span style="color:#94a3b8;font-size:12px">${(x.fee_rate*100).toFixed(2)}%费率 · ${x.avg_latency}ms · ${(x.success_rate*100).toFixed(0)}%成功率</span></span>
+    <span class="badge ok">启用</span></div>`).join('');
+  const o=await(await fetch('/api/v1/payments')).json();
+  document.getElementById('orders').innerHTML=o.payments.map(p=>{
+    const b=p.status==='success'?'ok':p.status==='blocked'?'block':'fail';
+    const t=p.status==='success'?'成功':p.status==='blocked'?'拦截':'失败';
+    return `<tr><td style="font-family:monospace;font-size:11px">${p.id.slice(0,18)}…</td><td>¥${p.amount}</td><td>${p.channel_id||'-'}</td><td><span class="badge ${b}">${t}</span></td><td>${p.risk.level}(${p.risk.score})</td><td>${p.latency_ms}ms</td></tr>`;
+  }).join('')||'<tr><td colspan=6 style="color:#64748b">暂无订单，快发起一笔试试</td></tr>';
+}
+async function pay(){
+  const body={amount:parseFloat(document.getElementById('amount').value),currency:document.getElementById('currency').value,ip:document.getElementById('ip').value,card_no:document.getElementById('card').value};
+  const r=await(await fetch('/api/v1/pay',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
+  document.getElementById('result').textContent=JSON.stringify(r,null,2);
+  load();
+}
+async function ppOrder(){
+  const body={amount:parseFloat(document.getElementById('pp_amount').value),currency:'USD'};
+  const r=await(await fetch('/api/v1/paypal/order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
+  const o=r.order;
+  document.getElementById('pp_result').textContent=
+    `订单ID: ${o.id}\n状态: ${o.status}\n模式: ${o.mock?'模拟（配置凭证后走真实沙箱）':'真实沙箱'}\n去支付: ${o.approve_url}`;
+}
+load();setInterval(load,5000);
+</script>
+</body>
+</html>
